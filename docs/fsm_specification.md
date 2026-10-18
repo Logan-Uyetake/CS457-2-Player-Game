@@ -1,4 +1,3 @@
-```stateDiagram-v2
 stateDiagram-v2
     
     [*] --> INIT : Start-up Server
@@ -22,7 +21,7 @@ stateDiagram-v2
 
     CLEANUP --> WAITING_FOR_PLAYERS : Reset Memory State and Tear Down Current Sockets
     CLEANUP --> [*] : Server Process Terminated
-```
+
 
 ### State 1: INIT
 * **Description:** The system boots, allocates memory, and binds the primary tracking socket to the specified server port.
