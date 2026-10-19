@@ -1,3 +1,5 @@
+![Application Screenshot](diagrams/stateDiagram.png)
+
 stateDiagram-v2
     
     [*] --> INIT : Start-up Server
