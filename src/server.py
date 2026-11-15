@@ -13,11 +13,15 @@ from protocol_handler import extract_messages, serialize_message
 
 
 def _message(msg_type: str, **fields: Any) -> dict[str, Any]:
+    """Build a protocol message with the current Unix timestamp."""
     return {"msg_type": msg_type, **fields, "timestamp": int(time.time())}
 
 
 class ClientConnection:
+    """Hold a connected client's socket and its assigned game details."""
+
     def __init__(self, sock: socket.socket, address: tuple[str, int]) -> None:
+        """Initialize connection state for a newly accepted socket."""
         self.socket = sock
         self.address = address
         self.player_id = ""
@@ -27,11 +31,13 @@ class ClientConnection:
         self.closed = False
 
     def send(self, message: dict[str, Any]) -> None:
+        """Serialize and send one message without interleaving socket writes."""
         packet = serialize_message(message)
         with self.send_lock:
             self.socket.sendall(packet)
 
     def close(self) -> None:
+        """Close the socket, tolerating an already-disconnected peer."""
         if self.closed:
             return
         self.closed = True
@@ -43,11 +49,19 @@ class ClientConnection:
 
 
 class Game:
-    def __init__(self, server: "GameServer", player_1: ClientConnection,
-                 player_2: ClientConnection) -> None:
+    """Manage a match and serialize access to its shared game state."""
+
+    def __init__(
+        self,
+        server: "GameServer",
+        player_1: ClientConnection,
+        player_2: ClientConnection,
+    ) -> None:
+        """Assign player roles and initialize a new match."""
         self.server = server
         self.players = {"player_1": player_1, "player_2": player_2}
         self.state = GameState()
+        # Match methods can call one another while holding this lock.
         self.lock = threading.RLock()
         self.finished = False
         player_1.role = "player_1"
@@ -56,6 +70,7 @@ class Game:
         player_2.game = self
 
     def start(self) -> None:
+        """Notify both players that the game has started."""
         for player, piece in (
             (self.players["player_1"], "X"),
             (self.players["player_2"], "O"),
@@ -82,6 +97,7 @@ class Game:
                 self.disconnect(player, "connection_lost")
 
     def handle(self, client: ClientConnection, message: dict[str, Any]) -> None:
+        """Validate and process a client's move or intentional departure."""
         if message["msg_type"] == "DISCONNECT":
             self.disconnect(client, "forfeit")
             return
@@ -91,7 +107,9 @@ class Game:
                     "ERROR",
                     payload={
                         "type_of_error": "unexpected_message",
-                        "error_message": "Only MOVE or DISCONNECT is accepted during a game.",
+                        "error_message": (
+                            "Only MOVE or DISCONNECT is accepted during a game."
+                        ),
                     },
                 )
             )
@@ -102,7 +120,9 @@ class Game:
                 return
             if message["player_id"] != client.player_id:
                 self._send_error(
-                    client, "player_id_mismatch", "The player_id does not match your connection."
+                    client,
+                    "player_id_mismatch",
+                    "The player_id does not match your connection.",
                 )
                 return
             if client.role != self.state.active_player:
@@ -112,19 +132,27 @@ class Game:
             column = message["payload"]["column"]
             if not 0 <= column < COLUMNS:
                 self._send_error(
-                    client, "invalid_coordinates", f"Choose a column from 0 to {COLUMNS - 1}."
+                    client,
+                    "invalid_coordinates",
+                    f"Choose a column from 0 to {COLUMNS - 1}.",
                 )
                 return
             piece = "X" if client.role == "player_1" else "O"
             row = self.state.drop_piece(column, piece)
             if row is None:
                 self._send_error(
-                    client, "invalid_coordinates", "That column is full; choose another."
+                    client,
+                    "invalid_coordinates",
+                    "That column is full; choose another.",
                 )
                 return
 
             if self.state.has_won(row, column, piece):
-                self._finish(winner=client.player_id, result="WIN", reason="connect_four")
+                self._finish(
+                    winner=client.player_id,
+                    result="WIN",
+                    reason="connect_four",
+                )
             elif self.state.is_draw():
                 self._finish(winner="", result="DRAW", reason="board_full")
             else:
@@ -142,6 +170,7 @@ class Game:
                 )
 
     def disconnect(self, client: ClientConnection, reason: str) -> None:
+        """End the game with the connected opponent as winner, when applicable."""
         with self.lock:
             if self.finished:
                 return
@@ -155,10 +184,17 @@ class Game:
             self._finish(
                 winner=opponent.player_id,
                 result="FORFEIT",
-                reason="opponent_disconnected" if reason != "forfeit" else "opponent_forfeit",
+                reason=(
+                    "opponent_disconnected"
+                    if reason != "forfeit"
+                    else "opponent_forfeit"
+                ),
             )
 
-    def _send_error(self, client: ClientConnection, error_type: str, text: str) -> None:
+    def _send_error(
+        self, client: ClientConnection, error_type: str, text: str
+    ) -> None:
+        """Send an error response to one player."""
         try:
             client.send(
                 _message(
@@ -170,6 +206,7 @@ class Game:
             self.disconnect(client, "connection_lost")
 
     def _broadcast(self, message: dict[str, Any]) -> None:
+        """Send a message to both players and handle failed connections."""
         failed_players = []
         for player in self.players.values():
             try:
@@ -180,6 +217,7 @@ class Game:
             self.disconnect(player, "connection_lost")
 
     def _finish(self, winner: str, result: str, reason: str) -> None:
+        """Broadcast the final result and release the match's connections."""
         if self.finished:
             return
         self.finished = True
@@ -200,18 +238,23 @@ class Game:
 
 
 class GameServer:
+    """Accept client connections and pair them into one active game."""
+
     def __init__(self, port: int) -> None:
+        """Initialize server state for the requested listening port."""
         self.port = port
         self.lock = threading.Lock()
         self.waiting_player: ClientConnection | None = None
         self.active_game: Game | None = None
 
     def game_finished(self, game: Game) -> None:
+        """Clear the finished game so another pair of players can connect."""
         with self.lock:
             if self.active_game is game:
                 self.active_game = None
 
     def register(self, client: ClientConnection, player_id: str) -> None:
+        """Add a player to the waiting lobby or start a match."""
         with self.lock:
             if self.active_game is not None:
                 client.send(
@@ -219,7 +262,9 @@ class GameServer:
                         "ERROR",
                         payload={
                             "type_of_error": "game_in_progress",
-                            "error_message": "A game is already in progress. Try again later.",
+                            "error_message": (
+                                "A game is already in progress. Try again later."
+                            ),
                         },
                     )
                 )
@@ -242,7 +287,9 @@ class GameServer:
                         "ERROR",
                         payload={
                             "type_of_error": "duplicate_player_id",
-                            "error_message": "Choose a player name different from Player 1.",
+                            "error_message": (
+                                "Choose a player name different from Player 1."
+                            ),
                         },
                     )
                 )
@@ -261,16 +308,21 @@ class GameServer:
         game.start()
 
     def remove_waiting(self, client: ClientConnection) -> None:
+        """Remove a disconnected client if it is still waiting for an opponent."""
         with self.lock:
             if self.waiting_player is client:
                 self.waiting_player = None
 
     def serve_forever(self) -> None:
+        """Bind the listening socket and accept clients indefinitely."""
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listening_socket:
             listening_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             listening_socket.bind(("0.0.0.0", self.port))
             listening_socket.listen()
-            print(f"Connect Four server listening on 0.0.0.0:{self.port}", flush=True)
+            print(
+                f"Connect Four server listening on 0.0.0.0:{self.port}",
+                flush=True,
+            )
             while True:
                 client_socket, address = listening_socket.accept()
                 client = ClientConnection(client_socket, address)
@@ -283,6 +335,7 @@ class GameServer:
                 worker.start()
 
     def _serve_client(self, client: ClientConnection) -> None:
+        """Read framed messages and route them to lobby or match handling."""
         buffer = b""
         registered = False
         try:
@@ -299,7 +352,9 @@ class GameServer:
                                     "ERROR",
                                     payload={
                                         "type_of_error": "expected_connect",
-                                        "error_message": "Send CONNECT before any other message.",
+                                        "error_message": (
+                                            "Send CONNECT before any other message."
+                                        ),
                                     },
                                 )
                             )
@@ -339,7 +394,10 @@ class GameServer:
                 client.send(
                     _message(
                         "ERROR",
-                        payload={"type_of_error": "malformed_message", "error_message": str(exc)},
+                        payload={
+                            "type_of_error": "malformed_message",
+                            "error_message": str(exc),
+                        },
                     )
                 )
             except OSError:
@@ -355,8 +413,13 @@ class GameServer:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the terminal Connect Four server.")
-    parser.add_argument("-p", "--port", type=int, required=True, help="TCP listening port")
+    """Parse command-line options and start the server."""
+    parser = argparse.ArgumentParser(
+        description="Run the terminal Connect Four server."
+    )
+    parser.add_argument(
+        "-p", "--port", type=int, required=True, help="TCP listening port"
+    )
     args = parser.parse_args()
     if not 1 <= args.port <= 65535:
         parser.error("port must be between 1 and 65535")

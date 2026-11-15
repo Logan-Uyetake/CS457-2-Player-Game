@@ -13,10 +13,12 @@ from protocol_handler import extract_messages, serialize_message
 
 
 def _message(msg_type: str, **fields: Any) -> dict[str, Any]:
+    """Build a protocol message with the current Unix timestamp."""
     return {"msg_type": msg_type, **fields, "timestamp": int(time.time())}
 
 
 def _render_board(board: list[list[str | None]]) -> None:
+    """Print the current board with column numbers for terminal play."""
     print("\n  " + "   ".join(str(column) for column in range(COLUMNS)))
     print("+" + "---+" * COLUMNS)
     for row in board:
@@ -27,6 +29,7 @@ def _render_board(board: list[list[str | None]]) -> None:
 def _receive_message(
     sock: socket.socket, buffer: bytes, pending: list[dict[str, Any]]
 ) -> tuple[dict[str, Any], bytes]:
+    """Read the next complete protocol message, preserving any pending frames."""
     while True:
         if pending:
             return pending.pop(0), buffer
@@ -34,10 +37,12 @@ def _receive_message(
         if not chunk:
             raise ConnectionError("Server closed the connection.")
         messages, buffer = extract_messages(buffer + chunk)
+        # TCP may combine several newline-framed messages into one read.
         pending.extend(messages)
 
 
 def run_client(hostname: str, port: int, player_id: str) -> int:
+    """Resolve the server, play the game through the terminal, and return a status."""
     try:
         server_ip = socket.gethostbyname(hostname)
     except socket.gaierror:
@@ -97,7 +102,10 @@ def run_client(hostname: str, port: int, player_id: str) -> int:
                         print("Game over: draw. Final score: 0.5 - 0.5")
                     else:
                         if winner == player_id:
-                            print(f"Game over: you won ({payload['reason']}). Final score: 1 - 0")
+                            print(
+                                f"Game over: you won ({payload['reason']}). "
+                                "Final score: 1 - 0"
+                            )
                         else:
                             print(
                                 f"Game over: {winner} won ({payload['reason']}). "
@@ -155,6 +163,7 @@ def run_client(hostname: str, port: int, player_id: str) -> int:
 
 
 def main() -> None:
+    """Parse command-line options and start the client."""
     parser = argparse.ArgumentParser(description="Play Connect Four in the terminal.")
     parser.add_argument("-i", "--hostname", required=True, help="Server DNS hostname")
     parser.add_argument("-p", "--port", type=int, required=True, help="Server TCP port")

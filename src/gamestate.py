@@ -12,6 +12,8 @@ CONNECT_LENGTH = 4
 
 @dataclass
 class GameState:
+    """Represent the Connect Four board and the player whose turn is active."""
+
     board: list[list[str | None]] = field(
         default_factory=lambda: [[None for _ in range(COLUMNS)] for _ in range(ROWS)]
     )
@@ -28,6 +30,7 @@ class GameState:
         return None
 
     def has_won(self, row: int, column: int, piece: str) -> bool:
+        """Return whether the latest move completes a four-piece line."""
         for row_delta, column_delta in ((0, 1), (1, 0), (1, 1), (1, -1)):
             count = 1
             for direction in (-1, 1):
@@ -46,4 +49,5 @@ class GameState:
         return False
 
     def is_draw(self) -> bool:
+        """Return whether every column is full."""
         return all(self.board[0][column] is not None for column in range(COLUMNS))

@@ -19,11 +19,13 @@ _MESSAGE_KEYS = {
 
 
 def _require_keys(value: dict[str, Any], keys: set[str], context: str) -> None:
+    """Require a dictionary to contain exactly the specified keys."""
     if set(value) != keys:
         raise ValueError(f"{context} must contain exactly {sorted(keys)}")
 
 
 def _require_type(value: Any, expected: type, context: str) -> None:
+    """Require a value to have the expected type, excluding bool for integers."""
     if expected is int:
         valid = type(value) is int
     else:
@@ -33,6 +35,7 @@ def _require_type(value: Any, expected: type, context: str) -> None:
 
 
 def _require_string(value: Any, context: str) -> None:
+    """Require a string value and identify its location in the message."""
     _require_type(value, str, context)
 
 
@@ -113,12 +116,14 @@ def validate_schema(msg_dict: dict[str, Any]) -> None:
 def serialize_message(msg_dict: dict[str, Any]) -> bytes:
     """Validate and serialize one protocol message, terminated by a newline."""
     validate_schema(msg_dict)
-    return (json.dumps(msg_dict, separators=(",", ":"), ensure_ascii=False) + "\n").encode(
-        "utf-8"
-    )
+    return (
+        json.dumps(msg_dict, separators=(",", ":"), ensure_ascii=False) + "\n"
+    ).encode("utf-8")
 
 
-def extract_messages(buffer_bytes: bytes | bytearray) -> tuple[list[dict[str, Any]], bytes]:
+def extract_messages(
+    buffer_bytes: bytes | bytearray,
+) -> tuple[list[dict[str, Any]], bytes]:
     """Extract and validate complete newline-framed messages from a byte buffer."""
     buffer = bytes(buffer_bytes)
     messages = []
